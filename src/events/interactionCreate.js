@@ -1,49 +1,42 @@
-import { parseIntent } from '../ai/intentParser.js';
-import { checkPermissions, isDangerousAction } from '../services/permissionService.js';
-import { askConfirmation } from '../services/confirmationService.js';
-import { executeAction } from '../services/actionService.js';
-import { addMessage, getContext } from '../services/memoryService.js';
+import { createBackup, listBackups } from '../security/backupManager.js';
+import { isPanicMode, enablePanicMode, disablePanicMode } from '../security/panicMode.js';
+import { analyzeAuditLogs } from '../security/auditAnalyzer.js';
+import { addWhitelist, removeWhitelist, addBlacklist, removeBlacklist } from '../security/whitelistBlacklist.js';
+
+const agentRef = { current: null };
+
+export function setAgent(agent) {
+  agentRef.current = agent;
+}
 
 export async function handleSlashCommand(interaction) {
   if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName !== 'admin') return;
 
-  await interaction.deferReply({ ephemeral: false });
+  if (interaction.commandName === 'admin') {
+    await interaction.deferReply();
+    const input = interaction.options.getString('command', true);
 
-  const input = interaction.options.getString('command', true);
-  const guild = interaction.guild;
-  const member = interaction.member;
+    const agent = agentRef.current;
+    if (!agent) return interaction.editReply('Bot agent not initialized.');
 
-  addMessage(interaction.channelId, member.user.username, `/admin ${input}`);
-  const context = getContext(interaction.channelId, 6);
-  const intent = await parseIntent(input, member.user.tag, context);
+    const fakeMessage = {
+      author: {
+        id: interaction.user.id,
+        username: interaction.user.username,
+        bot: false,
+      },
+      member: interaction.member,
+      guild: interaction.guild,
+      channel: interaction.channel,
+      client: interaction.client,
+      content: input,
+      reply: (content) => {
+        if (typeof content === 'string') content = { content };
+        return interaction.editReply(content);
+      },
+    };
 
-  if (intent.action === 'unknown') {
-    return interaction.editReply({
-      content: `🤖 ${intent.message || 'Rephrase that?'}`,
-    });
+    const reply = await agent.processMessage(fakeMessage);
+    if (reply) interaction.editReply(reply);
   }
-
-  const permCheck = checkPermissions(member, intent.action);
-  if (!permCheck.allowed) {
-    return interaction.editReply({
-      content: `❌ Need **${permCheck.missing.join(', ')}**.`,
-    });
-  }
-
-  if (isDangerousAction(intent.action)) {
-    const { confirmed } = await askConfirmation(interaction, `Execute \`${intent.action}\`?`);
-    if (!confirmed) return;
-  } else {
-    await interaction.editReply({ content: '⏳ Doing it...' });
-  }
-
-  intent.sourceChannelId = interaction.channelId;
-  const result = await executeAction(guild, member, intent);
-
-  await interaction.editReply({
-    content: result.success
-      ? `✅ ${result.message}`
-      : `❌ ${result.message}`,
-  });
 }

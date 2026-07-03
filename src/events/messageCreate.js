@@ -1,56 +1,50 @@
 import { config } from '../config/index.js';
-import { parseIntent } from '../ai/intentParser.js';
-import { checkPermissions, isDangerousAction } from '../services/permissionService.js';
-import { askConfirmation } from '../services/confirmationService.js';
-import { executeAction } from '../services/actionService.js';
-import { addMessage, getContext } from '../services/memoryService.js';
+import { getGuildConfig } from '../store/guildConfig.js';
+import { checkSpam } from '../security/antiSpam.js';
+import { checkLink } from '../security/antiLink.js';
+import { checkScam } from '../security/antiScam.js';
+import { runAutoMod } from '../security/autoMod.js';
+
+const agentRef = { current: null };
+
+export function setAgent(agent) {
+  agentRef.current = agent;
+}
+
+export function getAgent() {
+  return agentRef.current;
+}
 
 export async function handleMessage(message) {
   if (message.author.bot) return;
   if (!message.guild) return;
 
-  addMessage(message.channel.id, message.author.username, message.content);
+  const cfg = getGuildConfig(message.guild.id);
+
+  if (cfg.antiSpam) { const r = await checkSpam(message); if (r?.blocked) return; }
+  if (cfg.antiLink) { const r = checkLink(message.guild.id, message.content, message.member); if (r?.blocked) { try { await message.delete(); } catch (e) { console.error('[AntiLink] Delete failed:', e.message); } return; } }
+  if (cfg.antiScam) { const r = checkScam(message.content); if (r?.blocked) { try { await message.delete(); } catch {} return; } }
+  if (cfg.autoMod) { const r = await runAutoMod(message); if (r?.flagged) return; }
 
   const prefix = config.discord.prefix;
-  if (!message.content.startsWith(prefix)) return;
+  const isReply = message.type === 19 && message.mentions?.repliedUser?.id === message.client.user.id;
+  const isMention = message.mentions?.has(message.client.user.id);
+  const isPrefix = message.content.startsWith(prefix);
 
-  const input = message.content.slice(prefix.length).trim();
-  if (!input) return;
+  if (!isPrefix && !isMention && !isReply) return;
+
+  const input = message.content
+    .replace(/^<@!?\d+>/, '')
+    .replace(prefix, '')
+    .trim();
+
+  if (!input || input.length === 0) return;
 
   message.channel.sendTyping();
 
-  const context = getContext(message.channel.id, 6);
-  const intent = await parseIntent(input, message.author.tag, context);
+  const agent = agentRef.current;
+  if (!agent) return message.reply('❌ Agent not initialized.');
 
-  if (intent.action === 'unknown') {
-    return message.reply({
-      content: `🤖 ${intent.message || 'Rephrase that?'}`,
-    });
-  }
-
-  const permCheck = checkPermissions(message.member, intent.action);
-  if (!permCheck.allowed) {
-    return message.reply({
-      content: `❌ Need **${permCheck.missing.join(', ')}**.`,
-    });
-  }
-
-  let replyMessage;
-  if (isDangerousAction(intent.action)) {
-    const result = await askConfirmation(message, `Execute \`${intent.action}\`?`);
-    if (!result.confirmed) return;
-    replyMessage = result.replyMessage;
-    await replyMessage.edit({ content: '⏳ Doing it...' });
-  } else {
-    replyMessage = await message.reply({ content: '⏳ Doing it...' });
-  }
-
-  intent.sourceChannelId = message.channel.id;
-  const result = await executeAction(message.guild, message.member, intent);
-
-  await replyMessage.edit({
-    content: result.success
-      ? `✅ ${result.message}`
-      : `❌ ${result.message}`,
-  });
+  const reply = await agent.processMessage(message);
+  if (reply) message.reply(reply);
 }
