@@ -1,0 +1,16 @@
+{
+  "name": "ai-discord-manager",
+  "version": "1.0.0",
+  "description": "AI-powered Discord server management agent supporting Algerian Darija, Arabic, French, and English",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.7",
+    "groq-sdk": "^1.3.0"
+  }
+}
