@@ -5,13 +5,12 @@
   "type": "module",
   "description": "AI-powered Discord server management bot with SaaS dashboard",
   "scripts": {
-    "bot": "pm2 start ecosystem.config.cjs --env production",
+    "bot": "node src/index.js",
     "bot:dev": "node src/index.js",
-    "dashboard:backend": "cd dashboard/backend && node src/index.js",
+    "dashboard:backend": "node src/index.js --cwd dashboard/backend",
     "dashboard:frontend": "cd dashboard/frontend && npx vite --host",
     "dashboard:build": "cd dashboard/frontend && npx vite build",
     "install:all": "npm install && cd dashboard/backend && npm install && cd ../frontend && npm install",
-    "start": "pm2 start ecosystem.config.cjs && cd dashboard/backend && node src/index.js",
     "check": "node --check src/index.js"
   },
   "engines": {
